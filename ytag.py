@@ -17,6 +17,7 @@ def play_playlist(playlist_path, tag_to_play) -> None:
                 ids.append(id)
                 continue
 
+            # NOTE: Tag filtering logic (to be extended)
             if tag_to_play in tags:
                 ids.append(id)
 
@@ -76,10 +77,11 @@ def create_parser() -> argparse.ArgumentParser:
 
     parser.add_argument("-e", "--edit", help="Edit the tags of the given file")
 
-    parser.add_argument("-p", "--playlist", help="Which playlist to play")
+    parser.add_argument("-p", "--playlist", help="The path to the playlist to play")
+    parser.add_argument("--list_tags", action="store_true", help="Whether or not to list all the tags")
 
     # TODO: Multi-tag support
-    parser.add_argument("-t", "--tag", help="Filter tag to play")
+    parser.add_argument("-t", "--tag", default=None, help="Filter tag to play")
 
     # TODO: Add updating a playlist given the URL while keeping existing tags
 
@@ -90,6 +92,13 @@ def main():
     parser = create_parser()
     args = parser.parse_args()
 
+    if args.playlist and args.list_tags and not args.tag:
+        with open(args.playlist, mode="r") as f:
+            csv_reader = csv.reader(f)
+            tags = set([tag for (_, _, tag) in csv_reader])
+            for tag in tags:
+                print(tag if tag else '""')
+
     if args.create and args.output:
         create_csv_from_playlist(playlist_url=args.create, csv_filename=args.output)
 
@@ -97,7 +106,7 @@ def main():
         app = YTag(args.edit)
         app.run()
 
-    if args.playlist:
+    if args.playlist and args.tag is not None:
         play_playlist(playlist_path=args.playlist, tag_to_play=args.tag)
 
 
