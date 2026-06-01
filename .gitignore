@@ -2,6 +2,11 @@
 *.csv
 *env/
 
+!tag_app.py
+!ytag.py
+!requirements.txt
+!README.md
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
