@@ -5,18 +5,18 @@ YTag is a command-line application to assign tags to songs in a YouTube playlist
 ## Usage
 1. Create your CSV
 ```bash
-python ytag.py [-c CREATE] youtube_url [-o OUTPUT] classical.csv
+python ytag.py [-c CREATE] "youtube_url" [-o OUTPUT] "classical.csv"
 ```
 The created CSV serves as the backend for YTag to operate on with tagging
 
 2. Once you have the CSV file, you can begin tagging
 ```bash
-python ytag.py [-e EDIT] classical.csv
+python ytag.py [-e EDIT] "classical.csv"
 ```
 
 3. Finally, play a playlist, optionally with a tag
 ```bash
-python ytag.py [-p PLAYLIST] classical.csv [-t TAG] "bach"
+python ytag.py [-p PLAYLIST] "classical.csv" [-t TAG] "bach"
 ```
 
 ## Background 
