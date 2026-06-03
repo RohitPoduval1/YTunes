@@ -1,0 +1,8 @@
+Screen {
+    align: center middle;
+}
+
+SelectionList {
+    padding: 1;
+    border: solid $accent;
+}
