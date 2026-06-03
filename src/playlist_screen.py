@@ -1,3 +1,5 @@
+import random
+
 from textual.app import App, Screen, ComposeResult
 from textual.widgets import Footer, Header, SelectionList, Input, ListView, ListItem, Label
 from textual.binding import Binding
@@ -180,12 +182,9 @@ class PlaylistScreen(Screen):
         sel_list_widget.focus()
         self.notify(f"Added tags: {value}")
 
-    # -------------------------------------------------------------------------
-    # Helpers
-    # -------------------------------------------------------------------------
-
     def _play_song_ids(self, song_ids: list[str]) -> None:
         urls = [f"https://youtu.be/{song_id}" for song_id in song_ids]
+        random.shuffle(urls)
         self.app.play_urls(urls)
         self.notify(f"Queued {len(song_ids)} song(s) for playback.")
         self.query_one(SelectionList).deselect_all()
