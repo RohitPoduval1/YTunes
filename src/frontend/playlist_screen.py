@@ -39,6 +39,13 @@ class PlaylistScreen(Screen):
 
         yield SelectionList[str](*formatted_playlist, id="playlist_detail_list")
 
+        # Search input bar
+        search_input = Input(placeholder="Enter search term...", id="search_input")
+        search_input.styles.dock = "bottom"
+        self._hide_input_widget(search_input)
+        yield search_input
+
+        # Tag input bar
         tag_input = Input(placeholder="Enter tags (comma separated)...", id="tag_input")
         tag_input.styles.dock = "bottom"
         self._hide_input_widget(tag_input)
@@ -53,9 +60,6 @@ class PlaylistScreen(Screen):
         tag_list.styles.border = ("round", "yellow")
         yield tag_list
 
-        search_input = Input(placeholder="Enter search term...", id="search_input")
-        search_input.display = False
-        yield search_input
 
         delete_song_input = Input(placeholder='"y" to confirm deletion', id="delete_playlist_input")
         delete_song_input.display = False
@@ -236,7 +240,9 @@ class PlaylistScreen(Screen):
             parsed_new_tags = {t.strip().lower() for t in value.split(",") if t.strip()}
 
             for song_id in selected_ids:
-                self.playlist.songs[song_id].set_tags(parsed_new_tags)
+                current_tags = self.playlist.songs[song_id].get_tags()
+                updated_tags = current_tags.union(parsed_new_tags)
+                self.playlist.songs[song_id].set_tags(updated_tags)
 
             self._refresh_SelectionListUI()
             self._hide_input_widget(event.input)
