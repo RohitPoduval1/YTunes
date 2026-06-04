@@ -9,8 +9,8 @@ from textual.theme import Theme
 
 from models import Playlist
 from playlist_screen import PlaylistScreen
-from playlist_store import load_playlist_urls, add_playlist_url, remove_playlist_url
 from tag_store import delete_tags_for_playlist
+from playlist_store import PlaylistFileManager
 
 
 youtube_theme = Theme(
@@ -36,9 +36,8 @@ class Home(App):
 
     def __init__(self) -> None:
         super().__init__()
-        # Load playlists from file — this is the single source of truth
-        urls = load_playlist_urls()
-        self.playlists: list[Playlist] = [Playlist(url) for url in urls]
+        self.playlist_file_manager = PlaylistFileManager()
+        self.playlists = [Playlist(url) for url in self.playlist_file_manager.all_playlist_urls]
         self.player_process = None
 
     def compose(self) -> ComposeResult:
@@ -81,6 +80,11 @@ __  _______
             stderr=subprocess.DEVNULL,
         )
 
+
+    def action_quit(self) -> None:
+        self._stop_player()
+        self.exit()
+
     def _stop_player(self) -> None:
         """Safely terminates the global background player."""
         if self.player_process is not None:
@@ -88,9 +92,6 @@ __  _______
                 self.player_process.terminate()
             self.player_process = None
 
-    def action_quit(self) -> None:
-        self._stop_player()
-        self.exit()
 
     def action_move_down(self) -> None:
         self.query_one(ListView).action_cursor_down()
@@ -105,17 +106,6 @@ __  _______
         if index is not None and 0 <= index < len(self.playlists):
             self.push_screen(PlaylistScreen(self.playlists[index]))
 
-    def action_add_playlist(self) -> None:
-        url_input = self.query_one("#url_input", Input)
-        url_input.display = True
-        url_input.focus()
-
-    def action_delete_playlist(self) -> None:
-        list_view = self.query_one(ListView)
-        if list_view.index is not None:
-            delete_playlist_input = self.query_one("#delete_playlist_input", Input)
-            delete_playlist_input.display = True
-            delete_playlist_input.focus()
 
     def action_cancel_input(self) -> None:
         url_input = self.query_one("#url_input", Input)
@@ -130,6 +120,7 @@ __  _______
             delete_playlist_input.value = ""
 
         self.query_one(ListView).focus()
+
 
     def action_update_playlist(self) -> None:
         """Synchronously updates the currently selected playlist."""
@@ -152,6 +143,17 @@ __  _______
             except Exception as e:
                 self.notify(f"Failed to update: {e}", title="Error", severity="error")
 
+
+    ####################################
+    # Deleting a Playlist
+    ####################################
+    def action_delete_playlist(self) -> None:
+        list_view = self.query_one(ListView)
+        if list_view.index is not None:
+            delete_playlist_input = self.query_one("#delete_playlist_input", Input)
+            delete_playlist_input.display = True
+            delete_playlist_input.focus()
+
     @on(Input.Submitted, "#delete_playlist_input")
     def delete_playlist(self, event: Input.Submitted) -> None:
         confirmation: str = event.value
@@ -169,11 +171,20 @@ __  _______
 
                 # Wipe tags and remove from playlist file
                 delete_tags_for_playlist(playlist.id)
-                remove_playlist_url(playlist.url)
+                self.playlist_file_manager.remove(playlist)
 
                 # Remove from in-memory list and UI
                 self.playlists.pop(index)
                 list_view.pop(index)
+
+
+    ####################################
+    # Adding a Playlist
+    ####################################
+    def action_add_playlist(self) -> None:
+        url_input = self.query_one("#url_input", Input)
+        url_input.display = True
+        url_input.focus()
 
     @on(Input.Submitted, "#url_input")
     def handle_new_playlist(self, event: Input.Submitted) -> None:
@@ -189,8 +200,7 @@ __  _______
 
         playlist = Playlist(url)
 
-        # Persist to file, then update in-memory list and UI
-        add_playlist_url(playlist.url)
+        self.playlist_file_manager.add(playlist)
         self.playlists.append(playlist)
         self.query_one(ListView).append(ListItem(Label(playlist.title)))
 
