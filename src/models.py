@@ -16,7 +16,6 @@ class Song:
         return f"{self.title.ljust(110)} │ {','.join(self.tags)}"
 
 
-
 class Playlist:
     def __init__(self, url) -> None:
         """Given the URL to a YouTube playlist, populate class attributes
@@ -41,11 +40,11 @@ class Playlist:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info_dict = ydl.extract_info(self.url, download=False)
 
-            self.title = info_dict.get("title")
+            self.title = info_dict.get("title", "")
 
-            for entry in info_dict.get("entries"):
-                title = entry.get("title")
-                if re.match(r"\[\w+ video\]", title):
+            for entry in info_dict.get("entries", {}):
+                title = entry.get("title", "")
+                if not title or re.match(r"\[\w+ video\]", title):
                     continue
                 else:
                     url = entry.get("url")
@@ -53,3 +52,14 @@ class Playlist:
                     song = Song(id=id, title=title)
                     self.songs[id] = song
 
+    def update(self) -> int:
+        new_playlist = Playlist(self.url)
+        
+        new_song_ids = set(new_playlist.songs.keys()) - set(self.songs.keys())
+        
+        for song_id in new_song_ids:
+            self.songs[song_id] = new_playlist.songs[song_id]
+            
+        self.title = new_playlist.title
+        
+        return len(new_song_ids)

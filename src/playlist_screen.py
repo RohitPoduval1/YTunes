@@ -6,6 +6,7 @@ from textual.binding import Binding
 
 from models import Playlist
 from tag_store import (
+    delete_song,
     get_tags_for_song,
     set_tags_for_song,
     get_songs_by_tag,
@@ -24,8 +25,10 @@ class PlaylistScreen(Screen):
 
         Binding("backspace", "clear_all_tags", "Clear All Tags"),
         Binding("t", "tag_selected_songs", "Tag Selected"),
+        Binding("d", "delete_song", "Delete song"),
 
         Binding("p", "play_selected", "Play Selected"),
+        Binding("escape", "cancel_input", "Cancel", show=False),
     ]
 
     def __init__(self, playlist: Playlist) -> None:
@@ -42,7 +45,7 @@ class PlaylistScreen(Screen):
 
         yield SelectionList[str](*formatted_playlist, id="playlist_detail_list")
 
-        tag_input = Input(placeholder="Enter tags (comma separated)...")
+        tag_input = Input(placeholder="Enter tags (comma separated)...", id="tag_input")
         tag_input.styles.dock = "bottom"
         self._hide_input_widget(tag_input)
         yield tag_input
@@ -56,7 +59,26 @@ class PlaylistScreen(Screen):
         tag_list.styles.border = ("round", "yellow")
         yield tag_list
 
+        delete_song_input = Input(placeholder='"y" to confirm deletion', id="delete_playlist_input")
+        delete_song_input.display = False
+        yield delete_song_input
+
         yield Footer()
+
+
+    def action_cancel_input(self) -> None:
+        url_input = self.query_one("#url_input", Input)
+        delete_song_input = self.query_one("#delete_playlist_input", Input)
+
+        if url_input.display:
+            url_input.display = False
+            url_input.value = ""
+
+        if delete_song_input.display:
+            delete_song_input.display = False
+            delete_song_input.value = ""
+
+        self.query_one(ListView).focus()
 
     def on_mount(self) -> None:
         # Load persisted tags into the in-memory playlist on screen open
@@ -86,7 +108,7 @@ class PlaylistScreen(Screen):
         selected_song_ids = self.query_one(SelectionList).selected
 
         for song_id in selected_song_ids:
-            self.playlist.songs[song_id].tags = set()
+            self.playlist.songs[song_id].remove_all_tags()
             set_tags_for_song(self.playlist.id, song_id, set())
 
         self._refresh_SelectionListUI()
@@ -98,7 +120,8 @@ class PlaylistScreen(Screen):
             self.notify("Select at least one song with Spacebar or Enter first!", severity="warning")
             return
 
-        tag_input = self.query_one(Input)
+        # Target specifically by ID
+        tag_input = self.query_one("#tag_input", Input)
         tag_input.placeholder = "Enter tags (comma separated)..."
         tag_input.styles.display = "block"
         tag_input.focus()
@@ -111,6 +134,18 @@ class PlaylistScreen(Screen):
             self._play_song_ids(list(selected_song_ids))
         else:
             self._show_tag_picker()
+
+    def action_delete_song(self) -> None:
+        selected_song_ids = self.query_one(SelectionList).selected
+        
+        if not selected_song_ids:
+            self.notify("Select at least one song to delete first!", severity="warning")
+            return
+            
+        # Reveal and focus the confirmation input
+        delete_song_input = self.query_one("#delete_playlist_input", Input)
+        delete_song_input.display = True
+        delete_song_input.focus()
 
     def _show_tag_picker(self) -> None:
         """Collect all tags across the playlist and show them in the overlay ListView."""
@@ -160,27 +195,46 @@ class PlaylistScreen(Screen):
         sel_list.deselect_all()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        """Handles Enter in the Input widget for tagging."""
+        """Handles Enter in the Input widgets (tagging and deleting)."""
         value = event.value.strip()
-        tag_input_widget = self.query_one(Input)
+        input_id = event.input.id
         sel_list_widget = self.query_one(SelectionList)
-
-        parsed_new_tags = {t.strip().lower() for t in value.split(",") if t.strip()}
         selected_ids = sel_list_widget.selected
 
-        for song_id in selected_ids:
-            self.playlist.songs[song_id].tags.update(parsed_new_tags)
-            set_tags_for_song(
-                self.playlist.id,
-                song_id,
-                self.playlist.songs[song_id].tags,
-            )
+        # --- Handle Delete Confirmation ---
+        if input_id == "delete_playlist_input":
+            event.input.display = False
+            event.input.value = ""
+            sel_list_widget.focus()
 
-        self._refresh_SelectionListUI()
-        self._hide_input_widget(tag_input_widget)
-        sel_list_widget.deselect_all()
-        sel_list_widget.focus()
-        self.notify(f"Added tags: {value}")
+            if value.lower() == "y":
+                for song_id in selected_ids:
+                    delete_song(song_id=song_id, playlist_id=self.playlist.id)
+                    del self.playlist.songs[song_id]
+                
+                self._refresh_SelectionListUI()
+                sel_list_widget.deselect_all()
+                self.notify(f"Deleted {len(selected_ids)} song(s).")
+            else:
+                self.notify("Deletion cancelled.")
+
+        # --- Handle Tag Input ---
+        elif input_id == "tag_input":
+            parsed_new_tags = {t.strip().lower() for t in value.split(",") if t.strip()}
+
+            for song_id in selected_ids:
+                self.playlist.songs[song_id].tags.update(parsed_new_tags)
+                set_tags_for_song(
+                    self.playlist.id,
+                    song_id,
+                    self.playlist.songs[song_id].tags,
+                )
+
+            self._refresh_SelectionListUI()
+            self._hide_input_widget(event.input)
+            sel_list_widget.deselect_all()
+            sel_list_widget.focus()
+            self.notify(f"Added tags: {value}")
 
     def _play_song_ids(self, song_ids: list[str]) -> None:
         urls = [f"https://youtu.be/{song_id}" for song_id in song_ids]

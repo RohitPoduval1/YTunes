@@ -44,6 +44,12 @@ def delete_tags_for_playlist(playlist_id: str) -> None:
         del data[playlist_id]
         save_tags(data)
 
+def delete_song(playlist_id: str, song_id: str) -> None:
+    data = load_tags()
+    if playlist_id in data and song_id in data[playlist_id]:
+        del data[playlist_id][song_id]
+        save_tags(data)
+    
 
 def get_songs_by_tag(playlist_id: str, tag: str) -> list[str]:
     """Return all song IDs in a playlist that have the given tag."""

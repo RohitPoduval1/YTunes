@@ -29,6 +29,7 @@ class Home(App):
         Binding("q", "quit", "Quit"),
 
         Binding("a", "add_playlist", "Add playlist", show=True),
+    Binding("u", "update_playlist", "Update playlist", show=True),
         Binding("d", "delete_playlist", "Delete playlist", show=True),
         Binding("escape", "cancel_input", "Cancel", show=False),
     ]
@@ -129,6 +130,27 @@ __  _______
             delete_playlist_input.value = ""
 
         self.query_one(ListView).focus()
+
+    def action_update_playlist(self) -> None:
+        """Synchronously updates the currently selected playlist."""
+        list_view = self.query_one(ListView)
+        index = list_view.index
+        
+        if index is not None and 0 <= index < len(self.playlists):
+            playlist = self.playlists[index]
+            
+            self.notify(f"Fetching updates for '{playlist.title}'...", title="Updating")
+            
+            try:
+                new_count = playlist.update()
+                
+                if new_count > 0:
+                    self.notify(f"Added {new_count} new song(s) to '{playlist.title}'!", title="Success")
+                else:
+                    self.notify(f"'{playlist.title}' is already up to date.", title="No New Songs")
+                    
+            except Exception as e:
+                self.notify(f"Failed to update: {e}", title="Error", severity="error")
 
     @on(Input.Submitted, "#delete_playlist_input")
     def delete_playlist(self, event: Input.Submitted) -> None:
