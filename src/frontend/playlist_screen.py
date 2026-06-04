@@ -151,7 +151,7 @@ class PlaylistScreen(Screen):
 
     def _show_tag_picker(self) -> None:
         """Collect all tags across the playlist and show them in the overlay ListView."""
-        all_tags = self.playlist.get_tags()
+        all_tags = sorted(self.playlist.get_tags())
 
         if not all_tags:
             self.notify("No tags exist yet. Tag some songs with 't' first!", severity="warning")
