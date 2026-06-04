@@ -4,13 +4,7 @@ from textual.app import App, Screen, ComposeResult
 from textual.widgets import Footer, Header, SelectionList, Input, ListView, ListItem, Label
 from textual.binding import Binding
 
-from models import Playlist
-from tag_store import (
-    delete_song,
-    get_tags_for_song,
-    set_tags_for_song,
-    get_songs_by_tag,
-)
+from backend.playlist import Playlist
 
 
 class PlaylistScreen(Screen):
@@ -22,7 +16,7 @@ class PlaylistScreen(Screen):
         Binding("escape", "cancel_action", "Cancel"),
         Binding("q", "quit", "Quit"),
         Binding("b", "go_back", "Back to Playlists"),
-
+        Binding("s", "search", "Search"),
         Binding("backspace", "clear_all_tags", "Clear All Tags"),
         Binding("t", "tag_selected_songs", "Tag Selected"),
         Binding("d", "delete_song", "Delete song"),
@@ -59,6 +53,10 @@ class PlaylistScreen(Screen):
         tag_list.styles.border = ("round", "yellow")
         yield tag_list
 
+        search_input = Input(placeholder="Enter search term...", id="search_input")
+        search_input.display = False
+        yield search_input
+
         delete_song_input = Input(placeholder='"y" to confirm deletion', id="delete_playlist_input")
         delete_song_input.display = False
         yield delete_song_input
@@ -67,23 +65,17 @@ class PlaylistScreen(Screen):
 
 
     def action_cancel_input(self) -> None:
-        url_input = self.query_one("#url_input", Input)
-        delete_song_input = self.query_one("#delete_playlist_input", Input)
-
-        if url_input.display:
-            url_input.display = False
-            url_input.value = ""
-
-        if delete_song_input.display:
-            delete_song_input.display = False
-            delete_song_input.value = ""
+        for input_widget in self.query("Input"):
+            if input_widget.display:
+                input_widget.display = False
+                input_widget.value = ""
 
         self.query_one(ListView).focus()
 
     def on_mount(self) -> None:
         # Load persisted tags into the in-memory playlist on screen open
         for song_id, song in self.playlist.songs.items():
-            song.tags = get_tags_for_song(self.playlist.id, song_id)
+            song._tags = self.playlist.songs[song_id].get_tags()
 
         sel_list = self.query_one(SelectionList)
         sel_list.focus()
@@ -108,10 +100,16 @@ class PlaylistScreen(Screen):
         selected_song_ids = self.query_one(SelectionList).selected
 
         for song_id in selected_song_ids:
-            self.playlist.songs[song_id].remove_all_tags()
-            set_tags_for_song(self.playlist.id, song_id, set())
+            self.playlist.songs[song_id].set_tags(set())
 
         self._refresh_SelectionListUI()
+
+    def action_search(self) -> None:
+        """Reveal and focus the search input."""
+        search_input = self.query_one("#search_input", Input)
+        search_input.value = ""
+        search_input.display = True
+        search_input.focus()
 
     def action_tag_selected_songs(self) -> None:
         selected_song_ids = self.query_one(SelectionList).selected
@@ -149,11 +147,7 @@ class PlaylistScreen(Screen):
 
     def _show_tag_picker(self) -> None:
         """Collect all tags across the playlist and show them in the overlay ListView."""
-        all_tags = sorted({
-            tag
-            for song in self.playlist.songs.values()
-            for tag in song.tags
-        })
+        all_tags = self.playlist.get_tags()
 
         if not all_tags:
             self.notify("No tags exist yet. Tag some songs with 't' first!", severity="warning")
@@ -174,7 +168,7 @@ class PlaylistScreen(Screen):
         tag_list = self.query_one("#tag_picker", ListView)
         tag_list.styles.display = "none"
 
-        matching_ids = get_songs_by_tag(self.playlist.id, tag)
+        matching_ids = self.playlist.get_songs_for_tag(tag)
         if not matching_ids:
             self.notify(f'No songs tagged "{tag}".', severity="warning")
         else:
@@ -185,11 +179,12 @@ class PlaylistScreen(Screen):
 
     def action_cancel_action(self) -> None:
         """Triggered when the user presses Escape"""
-        tag_input = self.query_one(Input)
         sel_list = self.query_one(SelectionList)
         tag_list = self.query_one("#tag_picker", ListView)
 
-        self._hide_input_widget(tag_input)
+        for input_widget in self.query("Input"):
+            self._hide_input_widget(input_widget)
+            
         tag_list.styles.display = "none"
         sel_list.focus()
         sel_list.deselect_all()
@@ -209,8 +204,7 @@ class PlaylistScreen(Screen):
 
             if value.lower() == "y":
                 for song_id in selected_ids:
-                    delete_song(song_id=song_id, playlist_id=self.playlist.id)
-                    del self.playlist.songs[song_id]
+                    self.playlist.delete_song(song_id)
                 
                 self._refresh_SelectionListUI()
                 sel_list_widget.deselect_all()
@@ -218,17 +212,31 @@ class PlaylistScreen(Screen):
             else:
                 self.notify("Deletion cancelled.")
 
+        # --- Handle Search Input ---
+        if input_id == "search_input":
+            term = value.lower()
+            sel_list_widget.deselect_all()
+            
+            if not term:
+                self.notify("Search cleared.")
+            else:
+                match_count = 0
+                for song in self.playlist.songs.values():
+                    if term in song.display_str.lower():
+                        sel_list_widget.select(song.id)
+                        match_count += 1
+                
+                self.notify(f"Selected {match_count} song(s) matching '{value}'.")
+
+            self._hide_input_widget(event.input)
+            sel_list_widget.focus()
+
         # --- Handle Tag Input ---
         elif input_id == "tag_input":
             parsed_new_tags = {t.strip().lower() for t in value.split(",") if t.strip()}
 
             for song_id in selected_ids:
-                self.playlist.songs[song_id].tags.update(parsed_new_tags)
-                set_tags_for_song(
-                    self.playlist.id,
-                    song_id,
-                    self.playlist.songs[song_id].tags,
-                )
+                self.playlist.songs[song_id].set_tags(parsed_new_tags)
 
             self._refresh_SelectionListUI()
             self._hide_input_widget(event.input)

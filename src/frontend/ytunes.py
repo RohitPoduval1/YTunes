@@ -7,10 +7,9 @@ from textual.binding import Binding
 from textual.containers import Vertical
 from textual.theme import Theme
 
-from models import Playlist
-from playlist_screen import PlaylistScreen
-from tag_store import delete_tags_for_playlist
-from playlist_store import PlaylistFileManager
+from backend.playlist_file_manager import PlaylistFileManager
+from backend.playlist import Playlist
+from .playlist_screen import PlaylistScreen
 
 
 youtube_theme = Theme(
@@ -20,8 +19,8 @@ youtube_theme = Theme(
 )
 
 
-class Home(App):
-    CSS_PATH = "home.tcss"
+class YTunes(App):
+    CSS_PATH = "ytunes.tcss"
 
     BINDINGS = [
         Binding("j", "move_down", "Down", show=False),
@@ -29,7 +28,7 @@ class Home(App):
         Binding("q", "quit", "Quit"),
 
         Binding("a", "add_playlist", "Add playlist", show=True),
-    Binding("u", "update_playlist", "Update playlist", show=True),
+        Binding("u", "update_playlist", "Update playlist", show=True),
         Binding("d", "delete_playlist", "Delete playlist", show=True),
         Binding("escape", "cancel_input", "Cancel", show=False),
     ]
@@ -37,6 +36,7 @@ class Home(App):
     def __init__(self) -> None:
         super().__init__()
         self.playlist_file_manager = PlaylistFileManager()
+        # self.tag_file_manager = TagFileManager()
         self.playlists = [Playlist(url) for url in self.playlist_file_manager.all_playlist_urls]
         self.player_process = None
 
@@ -65,10 +65,12 @@ __  _______
 
         yield Footer()
 
+
     def on_mount(self) -> None:
         self.register_theme(youtube_theme)
         self.theme = "youtube"
         self.query_one(ListView).focus()
+
 
     def play_urls(self, urls: list[str]) -> None:
         """A global method that any Screen can call to play music."""
@@ -169,9 +171,7 @@ __  _______
             if index is not None and 0 <= index < len(self.playlists):
                 playlist = self.playlists[index]
 
-                # Wipe tags and remove from playlist file
-                delete_tags_for_playlist(playlist.id)
-                self.playlist_file_manager.remove(playlist)
+                playlist.delete_all_tags()
 
                 # Remove from in-memory list and UI
                 self.playlists.pop(index)
@@ -199,12 +199,14 @@ __  _______
             return
 
         playlist = Playlist(url)
-
-        self.playlist_file_manager.add(playlist)
-        self.playlists.append(playlist)
-        self.query_one(ListView).append(ListItem(Label(playlist.title)))
+        if url in self.playlist_file_manager.all_playlist_urls:
+            self.notify(f'Playlist "{playlist.title}" is already registered!')
+        else:
+            self.playlists.append(playlist)
+            self.playlist_file_manager.add(playlist)
+            self.query_one(ListView).append(ListItem(Label(playlist.title)))
 
 
 if __name__ == "__main__":
-    app = Home()
+    app = YTunes()
     app.run()

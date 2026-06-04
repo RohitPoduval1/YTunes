@@ -1,7 +1,8 @@
 import json
 from pathlib import Path
 
-from models import Playlist
+from .playlist import Playlist
+
 
 class PlaylistFileManager:
     """
@@ -20,7 +21,7 @@ class PlaylistFileManager:
     def __init__(self) -> None:
         src_dir = Path(__file__).resolve().parent
 
-        data_dir = src_dir.parent / "data"
+        data_dir = src_dir.parent.parent / "data"
         data_dir.mkdir(parents=True, exist_ok=True)
 
         self.file_path = data_dir / "playlists.json"
@@ -62,11 +63,11 @@ class PlaylistFileManager:
 
 
     @property
-    def all_playlist_urls(self) -> list[str]:
+    def all_playlist_urls(self) -> set[str]:
         all_playlist_data = self._load_data()
-        urls = []
+        urls = set()
         for playlist_data in all_playlist_data.values():
-            urls.append(playlist_data["url"])
+            urls.add(playlist_data["url"])
 
         return urls
 
