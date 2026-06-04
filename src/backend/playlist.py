@@ -1,19 +1,9 @@
-from dataclasses import dataclass, field
 import re
 from typing import Dict
-
 import yt_dlp
 
-
-@dataclass
-class Song:
-    id: str
-    title: str
-    tags: [str] = field(default_factory=list)
-    
-    @property
-    def display_str(self) -> str:
-        return f"{self.title.ljust(110)} │ {','.join(self.tags)}"
+from .song import Song
+from .tag_file_manager import TagFileManager
 
 
 class Playlist:
@@ -49,8 +39,10 @@ class Playlist:
                 else:
                     url = entry.get("url")
                     id = url.split("=")[1]
-                    song = Song(id=id, title=title)
+                    song = Song(song_id=id, name=title, playlist=self)
                     self.songs[id] = song
+
+        self._tag_file_manager = TagFileManager()
 
     def update(self) -> int:
         new_playlist = Playlist(self.url)
@@ -63,3 +55,19 @@ class Playlist:
         self.title = new_playlist.title
         
         return len(new_song_ids)
+
+    def get_tags(self) -> set[str]:
+        return self._tag_file_manager.get_tags_for_playlist(self.id)
+
+    def delete_all_tags(self) -> None:
+        self._tag_file_manager.delete_tags_for_playlist(self.id)
+
+    def get_songs_for_tag(self, tag: str) -> list[str]:
+        return self._tag_file_manager.get_songs_by_tag(self.id, tag)
+
+    def delete_song(self, song_id) -> None:
+        self._tag_file_manager.delete_song(
+            song_id=song_id,
+            playlist_id=self.id
+        )
+        del self.songs[song_id]
