@@ -1,13 +1,14 @@
 import random
 
-from textual.app import App, Screen, ComposeResult
-from textual.widgets import Footer, Header, SelectionList, Input, ListView, ListItem, Label
+from textual.app import App, ComposeResult
+from textual.containers import Container
+from textual.widgets import SelectionList, Input, ListView, ListItem, Label
 from textual.binding import Binding
 
 from backend.playlist import Playlist
 
 
-class PlaylistScreen(Screen):
+class PlaylistScreen(Container):
     CSS_PATH = "playlist_screen.tcss"
 
     BINDINGS = [
@@ -20,7 +21,6 @@ class PlaylistScreen(Screen):
         Binding("backspace", "clear_all_tags", "Clear All Tags"),
         Binding("t", "tag_selected_songs", "Tag Selected"),
         Binding("d", "delete_song", "Delete song"),
-
         Binding("p", "play_selected", "Play Selected"),
         Binding("escape", "cancel_input", "Cancel", show=False),
     ]
@@ -30,8 +30,6 @@ class PlaylistScreen(Screen):
         self.playlist = playlist
 
     def compose(self) -> ComposeResult:
-        yield Header()
-
         formatted_playlist = [
             (song.display_str, song.id)
             for song in self.playlist.songs.values()
@@ -60,13 +58,9 @@ class PlaylistScreen(Screen):
         tag_list.styles.border = ("round", "yellow")
         yield tag_list
 
-
         delete_song_input = Input(placeholder='"y" to confirm deletion', id="delete_playlist_input")
         delete_song_input.display = False
         yield delete_song_input
-
-        yield Footer()
-
 
     def action_cancel_input(self) -> None:
         for input_widget in self.query("Input"):
@@ -77,6 +71,10 @@ class PlaylistScreen(Screen):
         self.query_one(ListView).focus()
 
     def on_mount(self) -> None:
+        # Enforce dimensions so the container doesn't collapse
+        self.styles.width = "100%"
+        self.styles.height = "100%"
+
         # Load persisted tags into the in-memory playlist on screen open
         for song_id, song in self.playlist.songs.items():
             song._tags = self.playlist.songs[song_id].get_tags()
@@ -87,8 +85,11 @@ class PlaylistScreen(Screen):
         self._refresh_SelectionListUI()
 
     def action_go_back(self) -> None:
-        """Removes this screen and returns to the Home screen"""
-        self.app.pop_screen()
+        """Switches the ContentSwitcher back to the Home screen"""
+        from textual.widgets import ContentSwitcher
+        switcher = self.app.query_one("#main_switcher", ContentSwitcher)
+        switcher.current = "home_view"
+        self.app.query_one("#main_playlist_list").focus()
 
     def action_quit(self) -> None:
         self.app.action_quit()
@@ -251,9 +252,22 @@ class PlaylistScreen(Screen):
             self.notify(f"Added tags: {value}")
 
     def _play_song_ids(self, song_ids: list[str]) -> None:
+        if not song_ids:
+            return
+
+        # Shuffle the song_ids directly so the titles and URLs stay synced
+        random.shuffle(song_ids)
+        
         urls = [f"https://youtu.be/{song_id}" for song_id in song_ids]
-        random.shuffle(urls)
-        self.app.play_urls(urls)
+        first_song_id = song_ids[0]
+        first_song_title = self.playlist.songs[first_song_id].name
+        
+        if len(song_ids) > 1:
+            display_title = f"{first_song_title} (+ {len(song_ids) - 1} more queued)"
+        else:
+            display_title = first_song_title
+
+        self.app.play_urls(urls, title=display_title)
         self.notify(f"Queued {len(song_ids)} song(s) for playback.")
         self.query_one(SelectionList).deselect_all()
 
@@ -275,10 +289,12 @@ if __name__ == "__main__":
     class TestApp(App):
         def on_mount(self) -> None:
             test_playlist = Playlist("https://youtube.com/playlist?list=PLZGDtj1K-VKZylDfZxxzSwQgCFewu7x8p")
-            self.push_screen(PlaylistScreen(test_playlist))
+            # Note: TestApp will fail here since we removed pop_screen/push_screen logic.
+            # It should be tested within ytunes.py directly.
+            self.mount(PlaylistScreen(test_playlist))
 
-        def play_urls(self, urls):
-            self.notify(f"Simulating playing {len(urls)} urls!")
+        def play_urls(self, urls, title="Unknown"):
+            self.notify(f"Simulating playing {len(urls)} urls: {title}")
 
     app = TestApp()
     app.run()

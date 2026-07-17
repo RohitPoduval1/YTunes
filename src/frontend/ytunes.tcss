@@ -37,3 +37,21 @@ ListView {
 Label {
     padding: 1 2;
 }
+
+#now_playing_header {
+    dock: top;
+    height: 1;
+    background: $primary;
+    color: $text;
+    text-align: center;
+    text-style: bold;
+}
+
+#main_switcher {
+    height: 100%;
+}
+
+PlaylistScreen {
+    width: 100%;
+    height: 100%;
+}
