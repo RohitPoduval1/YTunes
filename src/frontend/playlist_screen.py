@@ -1,300 +1,198 @@
-import random
+from typing import List
+from frontend.now_playing import NowPlayingHeader
+from frontend.popups import SearchInputPopup, TagInputPopup
+from textual.screen import Screen
+from textual.app import ComposeResult
+from textual.widgets import DataTable, Label, Footer
 
-from textual.app import App, ComposeResult
-from textual.containers import Container
-from textual.widgets import SelectionList, Input, ListView, ListItem, Label
-from textual.binding import Binding
-
-from backend.playlist import Playlist
+from backend.models import Playlist, Song
+from frontend.popups import *
 
 
-class PlaylistScreen(Container):
-    CSS_PATH = "playlist_screen.tcss"
+class PlaylistScreen(Screen):
+    """Matches 'Screenshot 2026-07-24 at 2.14.25 PM.jpg'"""
 
     BINDINGS = [
-        Binding("j", "move_down", "Down", show=False),
-        Binding("k", "move_up", "Up", show=False),
-        Binding("escape", "cancel_action", "Cancel"),
-        Binding("q", "quit", "Quit"),
-        Binding("b", "go_back", "Back to Playlists"),
-        Binding("s", "search", "Search"),
-        Binding("backspace", "clear_all_tags", "Clear All Tags"),
-        Binding("t", "tag_selected_songs", "Tag Selected"),
-        Binding("d", "delete_song", "Delete song"),
-        Binding("p", "play_selected", "Play Selected"),
-        Binding("escape", "cancel_input", "Cancel", show=False),
+        ("escape", "app.pop_screen", "Go Back"),
+        ("space", "toggle_select", "Select"),
+        ("enter", "toggle_select", "Select"),
+        ("p", "play_action", "Play"),
+        ("t", "tag_action", "Tag"),
+        ("d", "delete_tags", "Untag"),
+        ("j", "move_down", "Down"),
+        ("k", "move_up", "Up"),
+        ("s", "search_action", "Search"),
     ]
 
-    def __init__(self, playlist: Playlist) -> None:
-        super().__init__()
+    def __init__(self, playlist: Playlist, db, **kwargs):
+        super().__init__(**kwargs)
         self.playlist = playlist
+        self.db = db
+        self.selected_songs: set[str] = set()
+        self.current_songs: List[Song] = []
 
     def compose(self) -> ComposeResult:
-        formatted_playlist = [
-            (song.display_str, song.id)
-            for song in self.playlist.songs.values()
-        ]
-
-        yield SelectionList[str](*formatted_playlist, id="playlist_detail_list")
-
-        # Search input bar
-        search_input = Input(placeholder="Enter search term...", id="search_input")
-        search_input.styles.dock = "bottom"
-        self._hide_input_widget(search_input)
-        yield search_input
-
-        # Tag input bar
-        tag_input = Input(placeholder="Enter tags (comma separated)...", id="tag_input")
-        tag_input.styles.dock = "bottom"
-        self._hide_input_widget(tag_input)
-        yield tag_input
-
-        # Tag picker overlay — hidden until p is pressed with nothing selected
-        tag_list = ListView(id="tag_picker")
-        tag_list.styles.display = "none"
-        tag_list.styles.dock = "top"
-        tag_list.styles.height = "auto"
-        tag_list.styles.max_height = "50%"
-        tag_list.styles.border = ("round", "yellow")
-        yield tag_list
-
-        delete_song_input = Input(placeholder='"y" to confirm deletion', id="delete_playlist_input")
-        delete_song_input.display = False
-        yield delete_song_input
-
-    def action_cancel_input(self) -> None:
-        for input_widget in self.query("Input"):
-            if input_widget.display:
-                input_widget.display = False
-                input_widget.value = ""
-
-        self.query_one(ListView).focus()
+        yield NowPlayingHeader()
+        yield Label(f" {self.playlist.name} ", id="playlist-title")
+        yield DataTable(id="songs-table")
+        yield Footer()
 
     def on_mount(self) -> None:
-        # Enforce dimensions so the container doesn't collapse
-        self.styles.width = "100%"
-        self.styles.height = "100%"
+        self.refresh_table()
 
-        # Load persisted tags into the in-memory playlist on screen open
-        for song_id, song in self.playlist.songs.items():
-            song._tags = self.playlist.songs[song_id].get_tags()
+    def refresh_table(self) -> None:
+        """Pulls fresh data from DB and repopulates the table."""
+        table = self.query_one(DataTable)
+        table.clear(columns=True)
+        
+        table.cursor_type = "row"
+        table.zebra_stripes = True
+        
+        # Adding explicit keys to columns so we can update them directly later
+        table.add_column("Status", key="status")
+        table.add_column("Song Title", key="title")
+        table.add_column("Tags", key="tags")
+        
+        self.current_songs = self.db.get_songs_for_playlist(self.playlist.id)
+        for song in self.current_songs:
+            tag_string = ", ".join([tag.name for tag in song.tags])
+            status = "[X]" if song.id in self.selected_songs else "   "
+            table.add_row(status, song.name, tag_string, key=song.id)
 
-        sel_list = self.query_one(SelectionList)
-        sel_list.focus()
-        sel_list.border_title = self.playlist.title
-        self._refresh_SelectionListUI()
-
-    def action_go_back(self) -> None:
-        """Switches the ContentSwitcher back to the Home screen"""
-        from textual.widgets import ContentSwitcher
-        switcher = self.app.query_one("#main_switcher", ContentSwitcher)
-        switcher.current = "home_view"
-        self.app.query_one("#main_playlist_list").focus()
-
-    def action_quit(self) -> None:
-        self.app.action_quit()
-
+    # --- Actions triggered by Hotkeys ---
     def action_move_down(self) -> None:
-        self.query_one(SelectionList).action_cursor_down()
+        """Fires when 'j' is pressed. Moves the table cursor down."""
+        table = self.query_one(DataTable)
+        row, col = table.cursor_coordinate
+        
+        # Ensure we don't try to move past the bottom of the table
+        if row < len(table.rows) - 1:
+            table.move_cursor(row=row + 1)
 
     def action_move_up(self) -> None:
-        self.query_one(SelectionList).action_cursor_up()
-
-    def action_clear_all_tags(self) -> None:
-        """Clear all tags for the selected songs (in memory + file)."""
-        selected_song_ids = self.query_one(SelectionList).selected
-
-        for song_id in selected_song_ids:
-            self.playlist.songs[song_id].set_tags(set())
-
-        self._refresh_SelectionListUI()
-
-    def action_search(self) -> None:
-        """Reveal and focus the search input."""
-        search_input = self.query_one("#search_input", Input)
-        search_input.value = ""
-        search_input.display = True
-        search_input.focus()
-
-    def action_tag_selected_songs(self) -> None:
-        selected_song_ids = self.query_one(SelectionList).selected
-
-        if not selected_song_ids:
-            self.notify("Select at least one song with Spacebar or Enter first!", severity="warning")
-            return
-
-        # Target specifically by ID
-        tag_input = self.query_one("#tag_input", Input)
-        tag_input.placeholder = "Enter tags (comma separated)..."
-        tag_input.styles.display = "block"
-        tag_input.focus()
-
-    def action_play_selected(self) -> None:
-        """Play selected songs, or show tag picker overlay if nothing is selected."""
-        selected_song_ids = self.query_one(SelectionList).selected
-
-        if selected_song_ids:
-            self._play_song_ids(list(selected_song_ids))
-        else:
-            self._show_tag_picker()
-
-    def action_delete_song(self) -> None:
-        selected_song_ids = self.query_one(SelectionList).selected
+        """Fires when 'k' is pressed. Moves the table cursor up."""
+        table = self.query_one(DataTable)
+        row, col = table.cursor_coordinate
         
-        if not selected_song_ids:
-            self.notify("Select at least one song to delete first!", severity="warning")
-            return
+        # Ensure we don't try to move past the top of the table
+        if row > 0:
+            table.move_cursor(row=row - 1)
+
+    def action_toggle_select(self) -> None:
+        """Fires when SPACE is pressed."""
+        table = self.query_one(DataTable)
+        try:
+            # Safely get the row key for whatever row the cursor is currently on
+            row_key = table.coordinate_to_cell_key(table.cursor_coordinate).row_key
+            song_id = row_key.value
             
-        # Reveal and focus the confirmation input
-        delete_song_input = self.query_one("#delete_playlist_input", Input)
-        delete_song_input.display = True
-        delete_song_input.focus()
-
-    def _show_tag_picker(self) -> None:
-        """Collect all tags across the playlist and show them in the overlay ListView."""
-        all_tags = sorted(self.playlist.get_tags())
-
-        if not all_tags:
-            self.notify("No tags exist yet. Tag some songs with 't' first!", severity="warning")
-            return
-
-        tag_list = self.query_one("#tag_picker", ListView)
-        tag_list.clear()
-        for tag in all_tags:
-            tag_list.append(ListItem(Label(tag), name=tag))
-
-        tag_list.styles.display = "block"
-        tag_list.border_title = "Pick a tag to play  [Esc to cancel]"
-        tag_list.focus()
-
-    def on_list_view_selected(self, event: ListView.Selected) -> None:
-        """Fires when the user clicks or presses Enter on a tag in the overlay."""
-        tag = event.item.name
-        tag_list = self.query_one("#tag_picker", ListView)
-        tag_list.styles.display = "none"
-
-        matching_ids = self.playlist.get_songs_for_tag(tag)
-        if not matching_ids:
-            self.notify(f'No songs tagged "{tag}".', severity="warning")
-        else:
-            self._play_song_ids(matching_ids)
-            self.notify(f'Playing {len(matching_ids)} song(s) tagged "{tag}".')
-
-        self.query_one(SelectionList).focus()
-
-    def action_cancel_action(self) -> None:
-        """Triggered when the user presses Escape"""
-        sel_list = self.query_one(SelectionList)
-        tag_list = self.query_one("#tag_picker", ListView)
-
-        for input_widget in self.query("Input"):
-            self._hide_input_widget(input_widget)
-            
-        tag_list.styles.display = "none"
-        sel_list.focus()
-        sel_list.deselect_all()
-
-    def on_input_submitted(self, event: Input.Submitted) -> None:
-        """Handles Enter in the Input widgets (tagging and deleting)."""
-        value = event.value.strip()
-        input_id = event.input.id
-        sel_list_widget = self.query_one(SelectionList)
-        selected_ids = sel_list_widget.selected
-
-        # --- Handle Delete Confirmation ---
-        if input_id == "delete_playlist_input":
-            event.input.display = False
-            event.input.value = ""
-            sel_list_widget.focus()
-
-            if value.lower() == "y":
-                for song_id in selected_ids:
-                    self.playlist.delete_song(song_id)
-                
-                self._refresh_SelectionListUI()
-                sel_list_widget.deselect_all()
-                self.notify(f"Deleted {len(selected_ids)} song(s).")
+            if song_id in self.selected_songs:
+                self.selected_songs.remove(song_id)
+                table.update_cell(row_key, "status", "   ")
             else:
-                self.notify("Deletion cancelled.")
+                self.selected_songs.add(song_id)
+                table.update_cell(row_key, "status", "[X]")
+        except Exception:
+            pass # Cursor might not be initialized yet
 
-        # --- Handle Search Input ---
-        if input_id == "search_input":
-            term = value.lower()
-            sel_list_widget.deselect_all()
+    def action_play_action(self) -> None:
+        """Fires when P is pressed."""
+        if self.selected_songs:
+            # 1. Songs are selected. Play them.
+            urls_to_play = [s.url for s in self.current_songs if s.id in self.selected_songs]
+            self.app.play_urls(urls_to_play)
             
-            if not term:
-                self.notify("Search cleared.")
-            else:
-                match_count = 0
-                for song in self.playlist.songs.values():
-                    if term in song.display_str.lower():
-                        sel_list_widget.select(song.id)
-                        match_count += 1
-                
-                self.notify(f"Selected {match_count} song(s) matching '{value}'.")
-
-            self._hide_input_widget(event.input)
-            sel_list_widget.focus()
-
-        # --- Handle Tag Input ---
-        elif input_id == "tag_input":
-            parsed_new_tags = {t.strip().lower() for t in value.split(",") if t.strip()}
-
-            for song_id in selected_ids:
-                current_tags = self.playlist.songs[song_id].get_tags()
-                updated_tags = current_tags.union(parsed_new_tags)
-                self.playlist.songs[song_id].set_tags(updated_tags)
-
-            self._refresh_SelectionListUI()
-            self._hide_input_widget(event.input)
-            sel_list_widget.deselect_all()
-            sel_list_widget.focus()
-            self.notify(f"Added tags: {value}")
-
-    def _play_song_ids(self, song_ids: list[str]) -> None:
-        if not song_ids:
-            return
-
-        # Shuffle the song_ids directly so the titles and URLs stay synced
-        random.shuffle(song_ids)
-        
-        urls = [f"https://youtu.be/{song_id}" for song_id in song_ids]
-        first_song_id = song_ids[0]
-        first_song_title = self.playlist.songs[first_song_id].name
-        
-        if len(song_ids) > 1:
-            display_title = f"{first_song_title} (+ {len(song_ids) - 1} more queued)"
+            # Clear selection after playing
+            self.selected_songs.clear()
+            self.refresh_table()
         else:
-            display_title = first_song_title
+            # 2. No songs selected. Show Tag Menu.
+            # Instantly gather all unique tags from the currently loaded songs
+            all_tags = {tag.name for song in self.current_songs for tag in song.tags}
+            
+            if all_tags:
+                self.app.push_screen(TagSelectPopup(all_tags), self._play_by_tag)
+            else:
+                self.app.bell() # No tags exist in this playlist yet!
 
-        self.app.play_urls(urls, title=display_title)
-        self.notify(f"Queued {len(song_ids)} song(s) for playback.")
-        self.query_one(SelectionList).deselect_all()
-
-    def _refresh_SelectionListUI(self) -> None:
-        sel_list_widget = self.query_one(SelectionList)
-        sel_list_widget.clear_options()
-        formatted_playlist = [
-            (song.display_str, song.id)
-            for song in self.playlist.songs.values()
+    def _play_by_tag(self, tag_name: str) -> None:
+        """Callback from the TagSelectPop."""
+        if not tag_name:
+            return
+            
+        urls_to_play = [
+            song.url for song in self.current_songs 
+            if any(t.name == tag_name for t in song.tags)
         ]
-        sel_list_widget.add_options(formatted_playlist)
+        if urls_to_play:
+            self.app.play_urls(urls_to_play)
 
-    def _hide_input_widget(self, input_widget: Input) -> None:
-        input_widget.value = ""
-        input_widget.styles.display = "none"
+    def action_tag_action(self) -> None:
+        """Fires when T is pressed."""
+        if not self.selected_songs:
+            self.app.bell()
+            return
+            
+        self.app.push_screen(TagInputPopup(), self._apply_tag)
 
+    def _apply_tag(self, tag_name: str) -> None:
+        if not tag_name:
+            return
+            
+        for song_id in self.selected_songs:
+            self.db.add_tag_to_song(song_id, tag_name)
+            
+        self.selected_songs.clear()
+        self.refresh_table()
 
-if __name__ == "__main__":
-    class TestApp(App):
-        def on_mount(self) -> None:
-            test_playlist = Playlist("https://youtube.com/playlist?list=PLZGDtj1K-VKZylDfZxxzSwQgCFewu7x8p")
-            # Note: TestApp will fail here since we removed pop_screen/push_screen logic.
-            # It should be tested within ytunes.py directly.
-            self.mount(PlaylistScreen(test_playlist))
+    def action_delete_tags(self) -> None:
+        """Clears tags for selected songs"""
+        table = self.query_one(DataTable)
+        
+        # Determine which songs to target
+        targets = set(self.selected_songs)
+        
+        # If no songs are explicitly selected with Space, fall back to the hovered row
+        if not targets:
+            try:
+                row_key = table.coordinate_to_cell_key(table.cursor_coordinate).row_key
+                targets.add(row_key.value)
+            except Exception:
+                pass
+                
+        if not targets:
+            self.app.bell()
+            return
+            
+        # 1. Clear them in the SQLite Database
+        for song_id in targets:
+            self.db.clear_tags_for_song(song_id)
+            
+        # 2. Reset selection and refresh UI to show tags are gone
+        self.selected_songs.clear()
+        self.refresh_table()
 
-        def play_urls(self, urls, title="Unknown"):
-            self.notify(f"Simulating playing {len(urls)} urls: {title}")
+    def action_search_action(self) -> None:
+        """Fires when 's' is pressed. Opens the search modal."""
+        self.app.push_screen(SearchInputPopup(), self._apply_search)
 
-    app = TestApp()
-    app.run()
+    def _apply_search(self, search_term: str) -> None:
+        """Callback from SearchInputPopup. Selects all matching songs."""
+        if not search_term:
+            return
+            
+        search_lower = search_term.lower()
+        matched_any = False
+        
+        # Loop through all loaded songs and find partial matches
+        for song in self.current_songs:
+            if search_lower in song.name.lower():
+                self.selected_songs.add(song.id)
+                matched_any = True
+                
+        if matched_any:
+            # Refresh the table so the newly selected items get their [X]
+            self.refresh_table()
+        else:
+            # Play an alert sound if the search yielded zero results
+            self.app.bell()

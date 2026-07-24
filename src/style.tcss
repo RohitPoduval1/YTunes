@@ -1,0 +1,84 @@
+/* ==========================================
+   GLOBAL HEADER
+   ========================================== */
+NowPlayingHeader {
+    dock: top;
+    width: 100%;
+    height: 1;
+    content-align: center middle;
+    background: red;
+    color: white;
+    text-style: bold;
+}
+
+/* ==========================================
+   LANDING SCREEN
+   ========================================== */
+#landing-container {
+    align-horizontal: center;
+    width: 50%;
+    height: 50%;
+}
+
+VimListView {
+    width: 50%;
+    height: auto;
+    max-height: 70%;
+    border: solid red;
+    background: $surface;
+}
+
+ListItem {
+    padding: 1;
+}
+/* ==========================================
+   PLAYLIST SONGS SCREEN
+   ========================================== */
+#playlist-title {
+    background: red;
+    color: white;
+    text-style: bold;
+    width: 100%;
+}
+
+#songs-table {
+    height: 1fr;
+}
+
+/* ==========================================
+   MODALS (TAGGING & PLAYING)
+   ========================================== */
+#tag-select-list {
+    width: 50%;
+    height: auto;
+    min-height: 5; /* Ensure it never collapses to 0 */
+    max-height: 70%;
+    border: solid red;
+    background: $surface;
+}
+
+BaseInputPopup, SearchInputPopup, TagInputPopup {
+    align: center middle;
+    background: rgba(0, 0, 0, 0.7);
+}
+
+.modal-input {
+    width: 50%;
+    height: 3;
+    border: solid red;
+}
+
+ConfirmPopup {
+    align: center middle;
+    background: rgba(0, 0, 0, 0.7);
+}
+
+.confirm-label {
+    width: 50%;
+    height: 3;
+    content-align: center middle;
+    border: solid red;
+    background: $surface;
+    color: white;
+}
+
